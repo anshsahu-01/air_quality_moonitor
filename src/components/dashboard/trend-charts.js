@@ -32,8 +32,8 @@ export default function TrendCharts({ data }) {
         title="Air Quality Trend"
         subtitle="PM2.5 over the last monitoring cycle."
       >
-        <div className="h-[300px] min-w-0">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-[300px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
             <LineChart data={data.chartSeries}>
               <CartesianGrid stroke="rgba(226,232,240,0.9)" vertical={false} />
               <XAxis dataKey="label" tick={{ fill: "#94A3B8", fontSize: 12 }} axisLine={false} tickLine={false} />
@@ -66,8 +66,8 @@ export default function TrendCharts({ data }) {
         title="Pollutant Snapshot"
         subtitle="Current pollutant values across live nodes."
       >
-        <div className="h-[300px] min-w-0">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-[300px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
             <BarChart data={data.nodes}>
               <CartesianGrid stroke="rgba(226,232,240,0.9)" vertical={false} />
               <XAxis dataKey="location" tick={{ fill: "#94A3B8", fontSize: 12 }} axisLine={false} tickLine={false} />
