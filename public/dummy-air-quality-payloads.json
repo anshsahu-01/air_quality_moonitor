@@ -1,0 +1,29 @@
+[
+  {
+    "nodeId": "Node1",
+    "location": "College Gate",
+    "latitude": 28.6129,
+    "longitude": 77.2295,
+    "pm25": 110,
+    "co": 9,
+    "no2": 25
+  },
+  {
+    "nodeId": "Node2",
+    "location": "Central Market",
+    "latitude": 28.6304,
+    "longitude": 77.2177,
+    "pm25": 62,
+    "co": 5.5,
+    "no2": 18
+  },
+  {
+    "nodeId": "Node3",
+    "location": "Metro Station",
+    "latitude": 28.621,
+    "longitude": 77.205,
+    "pm25": 34,
+    "co": 2.7,
+    "no2": 12
+  }
+]
