@@ -1,70 +1,77 @@
 import { buildDashboardSnapshot, calculateAqi, movingAverage } from "@/lib/air-quality";
-import dbConnect from "./db";
-import Node from "@/models/Node";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin";
 import { SAMPLE_NODES } from "@/lib/sample-data";
 
-/**
- * Ensures MongoDB is connected, and seeds the db with SAMPLE_NODES if it is empty.
- */
-async function initializeDb() {
-  await dbConnect();
-  const count = await Node.countDocuments();
-  if (count === 0) {
-    console.log("Database is empty. Seeding with sample data...");
-    await Node.insertMany(SAMPLE_NODES);
+function getStore() {
+  if (!globalThis.__airQualityStore) {
+    globalThis.__airQualityStore = {
+      nodes: new Map(SAMPLE_NODES.map((node) => [node.nodeId, node])),
+      subscribers: new Set(),
+    };
   }
+
+  return globalThis.__airQualityStore;
 }
 
-function getStore() {
-  if (!globalThis.__airQualitySubscribers) {
-    globalThis.__airQualitySubscribers = new Set();
-  }
-  return globalThis.__airQualitySubscribers;
+function syncStoreFromNodes(nodes) {
+  const store = getStore();
+  store.nodes = new Map(nodes.map((node) => [node.nodeId, node]));
+  return store;
 }
 
 function emitSnapshot(snapshot) {
-  const subscribers = getStore();
-  for (const subscriber of subscribers) {
+  const store = getStore();
+  for (const subscriber of store.subscribers) {
     subscriber(snapshot);
   }
 }
 
-export async function getDashboardSnapshot() {
-  await initializeDb();
-  const persistedNodes = await Node.find().lean();
-  
-  // Clean up MongoDB _id and ensure proper formatting for the frontend app
-  const cleanNodes = persistedNodes.map(node => {
-    const { _id, __v, ...rest } = node;
-    return {
-      ...rest,
-      // Date formatting normalization since DB returns Date objects
-      updatedAt: new Date(node.updatedAt).toISOString(),
-      history: node.history?.map(h => ({
-        ...h,
-        _id: undefined,
-        timestamp: new Date(h.timestamp).toISOString()
-      })) || []
-    };
-  });
+async function readFirebaseNodes() {
+  const db = getFirebaseAdminDb();
+  if (!db) return null;
 
-  return buildDashboardSnapshot(cleanNodes);
+  try {
+    const snapshot = await db.collection("air-quality-nodes").get();
+    return snapshot.docs.map((doc) => doc.data());
+  } catch (error) {
+    console.error("Error reading from Firebase:", error.message);
+    return null;
+  }
+}
+
+async function persistNodeToFirebase(node) {
+  const db = getFirebaseAdminDb();
+  if (!db) return;
+
+  try {
+    await db.collection("air-quality-nodes").doc(node.nodeId).set(node, { merge: true });
+  } catch (error) {
+    console.error("Error persisting to Firebase:", error.message);
+  }
+}
+
+export async function getDashboardSnapshot() {
+  const persistedNodes = await readFirebaseNodes();
+  if (persistedNodes?.length) {
+    syncStoreFromNodes(persistedNodes);
+    return buildDashboardSnapshot(persistedNodes);
+  }
+
+  const store = getStore();
+  return buildDashboardSnapshot(Array.from(store.nodes.values()));
 }
 
 export function subscribeToSnapshots(listener) {
-  const subscribers = getStore();
-  subscribers.add(listener);
-  return () => subscribers.delete(listener);
+  const store = getStore();
+  store.subscribers.add(listener);
+  return () => store.subscribers.delete(listener);
 }
 
 export async function ingestAirQualityReading(payload) {
-  await initializeDb();
-  
-  const existingDoc = await Node.findOne({ nodeId: payload.nodeId });
+  const store = getStore();
+  const existing = store.nodes.get(payload.nodeId);
   const timestamp = new Date().toISOString();
-  
-  // Merge and maintain only the last 8 entries based on the existing history
-  const historySeed = existingDoc ? existingDoc.history.map(h => h.toObject()) : [];
+  const historySeed = existing?.history ?? [];
   const readingEntry = {
     pm25: payload.pm25,
     co: payload.co,
@@ -73,32 +80,25 @@ export async function ingestAirQualityReading(payload) {
   };
   const mergedHistory = [...historySeed, readingEntry].slice(-8);
   const aqiSeries = mergedHistory.map((item) => calculateAqi(item));
-  
-  const historyWithCalcs = mergedHistory.map((entry, index) => ({
-    ...entry,
-    aqi: aqiSeries[index],
-    predictedAqi: movingAverage(aqiSeries.slice(0, index + 1), 4),
-  }));
-
-  const nextNodeData = {
+  const nextNode = {
     nodeId: payload.nodeId,
     location: payload.location,
-    latitude: payload.latitude ?? existingDoc?.latitude ?? 28.6139,
-    longitude: payload.longitude ?? existingDoc?.longitude ?? 77.209,
+    latitude: payload.latitude ?? existing?.latitude ?? 28.6139,
+    longitude: payload.longitude ?? existing?.longitude ?? 77.209,
     pm25: payload.pm25,
     co: payload.co,
     no2: payload.no2,
-    deviceEnabled: existingDoc?.deviceEnabled ?? false,
+    deviceEnabled: existing?.deviceEnabled ?? false,
     updatedAt: timestamp,
-    history: historyWithCalcs,
+    history: mergedHistory.map((entry, index) => ({
+      ...entry,
+      aqi: aqiSeries[index],
+      predictedAqi: movingAverage(aqiSeries.slice(0, index + 1), 4),
+    })),
   };
 
-  // Upsert into MongoDB
-  await Node.findOneAndUpdate(
-    { nodeId: payload.nodeId },
-    { $set: nextNodeData },
-    { upsert: true, new: true }
-  );
+  store.nodes.set(nextNode.nodeId, nextNode);
+  await persistNodeToFirebase(nextNode);
 
   const snapshot = await getDashboardSnapshot();
   emitSnapshot(snapshot);
@@ -106,16 +106,29 @@ export async function ingestAirQualityReading(payload) {
 }
 
 export async function updateDeviceState(nodeId, enabled) {
-  await initializeDb();
-  
-  const node = await Node.findOne({ nodeId });
+  const store = getStore();
+  let node = store.nodes.get(nodeId);
+
+  if (!node) {
+    const persistedNodes = await readFirebaseNodes();
+    if (persistedNodes?.length) {
+      syncStoreFromNodes(persistedNodes);
+      node = getStore().nodes.get(nodeId);
+    }
+  }
+
   if (!node) {
     throw new Error("Node not found");
   }
 
-  node.deviceEnabled = enabled;
-  node.updatedAt = new Date();
-  await node.save();
+  const nextNode = {
+    ...node,
+    deviceEnabled: enabled,
+    updatedAt: new Date().toISOString(),
+  };
+
+  store.nodes.set(nodeId, nextNode);
+  await persistNodeToFirebase(nextNode);
 
   const snapshot = await getDashboardSnapshot();
   emitSnapshot(snapshot);
@@ -123,16 +136,9 @@ export async function updateDeviceState(nodeId, enabled) {
 }
 
 export async function injectDemoPulse() {
-  await initializeDb();
-  
-  // Pick random node from MongoDB
-  const nodes = await Node.find().lean();
-  let target;
-  if (nodes.length > 0) {
-    target = nodes[Math.floor(Math.random() * nodes.length)];
-  } else {
-    target = SAMPLE_NODES[0];
-  }
+  const store = getStore();
+  const nodes = Array.from(store.nodes.values());
+  const target = nodes[Math.floor(Math.random() * nodes.length)] ?? SAMPLE_NODES[0];
 
   const nextPayload = {
     nodeId: target.nodeId,
