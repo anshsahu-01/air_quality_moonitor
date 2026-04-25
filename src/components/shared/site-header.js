@@ -11,6 +11,8 @@ const navItems = [
 export default function SiteHeader({
   activeItem = "Home",
   showSearch = true,
+  searchQuery = "",
+  onSearchChange = () => {},
   actionLabel = "Get Alerts",
   action,
   secondaryAction,
@@ -58,7 +60,10 @@ export default function SiteHeader({
               <input 
                 type="text" 
                 placeholder="Search location..." 
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
                 className="bg-transparent border-none text-sm outline-none   placeholder: "
+                suppressHydrationWarning
               />
             </div>
           ) : null}

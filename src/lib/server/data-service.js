@@ -138,17 +138,36 @@ export async function updateDeviceState(nodeId, enabled) {
 export async function injectDemoPulse() {
   const store = getStore();
   const nodes = Array.from(store.nodes.values());
-  const target = nodes[Math.floor(Math.random() * nodes.length)] ?? SAMPLE_NODES[0];
+  const nodesToUpdate = nodes.length ? nodes : SAMPLE_NODES;
 
-  const nextPayload = {
-    nodeId: target.nodeId,
-    location: target.location,
-    latitude: target.latitude,
-    longitude: target.longitude,
-    pm25: Math.max(12, Math.round(target.pm25 + (Math.random() * 24 - 8))),
-    co: Number(Math.max(1.5, target.co + (Math.random() * 2 - 0.6)).toFixed(1)),
-    no2: Math.max(8, Math.round(target.no2 + (Math.random() * 8 - 2))),
-  };
+  let latestSnapshot;
 
-  return ingestAirQualityReading(nextPayload);
+  for (const target of nodesToUpdate) {
+    try {
+      const response = await fetch(
+        `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${target.latitude}&longitude=${target.longitude}&current=pm10,pm2_5,carbon_monoxide,nitrogen_dioxide`,
+        { cache: "no-store" }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const current = data.current;
+        
+        const nextPayload = {
+          nodeId: target.nodeId,
+          location: target.location,
+          latitude: target.latitude,
+          longitude: target.longitude,
+          pm25: current.pm2_5 ?? target.pm25,
+          co: current.carbon_monoxide ? Number((current.carbon_monoxide / 1000).toFixed(1)) : target.co, // Open-Meteo CO is usually ug/m3, convert to approximate ppm for consistency or just use as is
+          no2: current.nitrogen_dioxide ?? target.no2,
+        };
+        
+        latestSnapshot = await ingestAirQualityReading(nextPayload);
+      }
+    } catch (e) {
+      console.error(`Failed to fetch live API data for ${target.nodeId}:`, e);
+    }
+  }
+
+  return latestSnapshot ?? (await getDashboardSnapshot());
 }

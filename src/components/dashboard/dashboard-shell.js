@@ -228,7 +228,18 @@ export default function DashboardShell({ initialData, session }) {
   const { data, isRealtimeActive, source, lastUpdate, toggleDevice, simulatePulse } =
     useRealtimeAirQuality(initialData);
   const [activeNodeId, setActiveNodeId] = useState(data.nodes[0]?.nodeId ?? null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  const filteredNodes = useMemo(() => {
+    if (!searchQuery.trim()) return data.nodes;
+    const query = searchQuery.toLowerCase();
+    return data.nodes.filter(
+      (node) =>
+        node.location.toLowerCase().includes(query) ||
+        node.nodeId.toLowerCase().includes(query)
+    );
+  }, [data.nodes, searchQuery]);
 
   const selectedNode =
     data.nodes.find((node) => node.nodeId === activeNodeId) ?? data.nodes[0] ?? null;
@@ -264,12 +275,15 @@ export default function DashboardShell({ initialData, session }) {
           activeItem="Home"
           actionLabel="Logout"
           action={logoutAction}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
           secondaryAction={
             <button
               type="button"
               onClick={handleSimulate}
               disabled={isPending}
               className="inline-flex items-center justify-center gap-2 rounded-full border   bg-[rgba(255,255,255,0.03)] px-5 py-3 text-sm font-medium   transition hover:bg-[rgba(255,255,255,0.08)] disabled:opacity-60"
+              suppressHydrationWarning
             >
               <RefreshCw className={`h-4 w-4   ${isPending ? "animate-spin" : ""}`} />
               Refresh
@@ -279,7 +293,7 @@ export default function DashboardShell({ initialData, session }) {
 
         {!!data.alerts.length && <AlertBanner alerts={data.alerts} />}
 
-        {!data.nodes.length ? (
+        {!filteredNodes.length ? (
           <EmptyState />
         ) : (
           <>
@@ -311,6 +325,7 @@ export default function DashboardShell({ initialData, session }) {
                         });
                       }}
                       className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-blue-500 px-6 py-3 text-sm font-medium text-white transition hover:bg-blue-600"
+                      suppressHydrationWarning
                     >
                       Check Air Quality
                       <ArrowRight className="h-4 w-4" />
@@ -323,6 +338,7 @@ export default function DashboardShell({ initialData, session }) {
                         });
                       }}
                       className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[#DCE3EA] bg-white px-6 py-3 text-sm font-medium text-slate-800 transition hover:bg-[#F9FBFD]"
+                      suppressHydrationWarning
                     >
                       Explore Map
                       <MapPin className="h-4 w-4" />
@@ -408,13 +424,14 @@ export default function DashboardShell({ initialData, session }) {
                 <button
                   type="button"
                   className="rounded-full border   bg-[rgba(255,255,255,0.03)] px-5 py-3 text-sm font-medium   transition hover:bg-[rgba(255,255,255,0.08)]"
+                  suppressHydrationWarning
                 >
                   View All Locations
                 </button>
               </div>
 
               <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
-                {data.nodes.map((node) => (
+                {filteredNodes.map((node) => (
                   <OverviewCard
                     key={node.nodeId}
                     node={node}
@@ -427,11 +444,11 @@ export default function DashboardShell({ initialData, session }) {
 
             <section className="grid gap-5 xl:grid-cols-[1.1fr_1.05fr_0.8fr]">
               <div className="min-w-0">
-                <TrendCharts data={data} />
+                <TrendCharts data={{ ...data, nodes: filteredNodes }} />
               </div>
               <div id="map-section" className="min-w-0">
                 <DashboardMapCard
-                  nodes={data.nodes}
+                  nodes={filteredNodes}
                   selectedNodeId={selectedNode?.nodeId ?? null}
                   onSelectNode={setActiveNodeId}
                 />

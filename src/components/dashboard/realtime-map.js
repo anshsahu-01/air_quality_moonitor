@@ -8,6 +8,9 @@ import AqiBadge from "@/components/dashboard/aqi-badge";
 function createMarker(severity, active) {
   const color =
     severity === "poor" ? "#efc3d0" : severity === "moderate" ? "#efd9c4" : "#dce9b6";
+  const borderColor = severity === "poor" ? "#ff4d4f" : "rgba(255,255,255,0.96)";
+
+  const pulseAnimation = severity === "poor" ? `animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;` : '';
 
   return L.divIcon({
     className: "custom-map-marker",
@@ -16,9 +19,19 @@ function createMarker(severity, active) {
       height:${active ? 22 : 18}px;
       border-radius:999px;
       background:${color};
-      border:3px solid rgba(255,255,255,0.96);
+      border:3px solid ${borderColor};
       box-shadow:0 0 0 ${active ? 10 : 6}px rgba(184,198,208,0.18),0 10px 18px rgba(155,164,175,0.18);
-    "></div>`,
+      position: relative;
+    ">
+      ${severity === "poor" ? `<div style="position: absolute; top: -10px; left: -10px; width: ${active ? 36 : 32}px; height: ${active ? 36 : 32}px; border-radius: 999px; background: rgba(255, 77, 79, 0.4); ${pulseAnimation}"></div>` : ''}
+    </div>
+    <style>
+      @keyframes pulse-ring {
+        0% { transform: scale(0.8); opacity: 0.5; }
+        80% { transform: scale(1.5); opacity: 0; }
+        100% { transform: scale(1.5); opacity: 0; }
+      }
+    </style>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
     popupAnchor: [0, -12],
